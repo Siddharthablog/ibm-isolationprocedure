@@ -1,64 +1,47 @@
+import re
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
-import re
+from typing import Optional
 
 app = FastAPI()
 
-# Input model for uploaded PDF text
-class TextInput(BaseModel):
-    text: str  # Raw text extracted from the isolation procedure PDF
+class Input(BaseModel):
+    text: str
+    query: Optional[str] = None
 
-# Output model for one error code resolution block
-class ErrorFixDetail(BaseModel):
-    error_code: str
-    description: str
-    resolution_steps: List[str]
-
-# Output model for API response
 class Output(BaseModel):
-    original_text: str
-    matches: List[ErrorFixDetail]
+    procedure: Optional[str] = None
+    steps: Optional[str] = None
+    message: str
 
-# Updated endpoint name
-@app.post("/search-isolation-procedure", response_model=Output)
-async def search_isolation_procedure(input_text: TextInput):
-    text = input_text.text.strip()
+# Matches something like FSPSP10 followed by lines of steps
+def find_procedure_steps(text: str, procedure_code: str) -> Optional[str]:
+    # Normalize input
+    procedure_code = procedure_code.strip().upper()
 
-    # Debug logging to verify incoming data
-    print("Received text input length:", len(text))
-    print("First 300 characters of input text:")
-    print(text[:300])
+    # Escape for regex safety
+    escaped_code = re.escape(procedure_code)
 
-    matches = []
-
-    # Flexible regex pattern to capture varied formatting
+    # Match starting at FSPSP10 and go until next all-caps token (like FSPABC1)
     pattern = re.compile(
-        r"Error Code[:\s]+(?P<code>\w+).*?"
-        r"Description[:\s]+(?P<desc>.+?)"
-        r"Resolution Steps[:\s]*(?P<steps>.*?)(?=Error Code|\Z)",
-        re.DOTALL | re.IGNORECASE
+        rf"({escaped_code})(.*?)\n(?=[A-Z0-9]{{6,}}(?:\s|$)|\Z)",
+        re.DOTALL
     )
+    match = pattern.search(text)
+    if match:
+        return match.group(0).strip()
+    return None
 
-    for match in pattern.finditer(text):
-        code = match.group("code").strip()
-        desc = match.group("desc").strip()
+@app.post("/search-isolation-procedure", response_model=Output)
+def search_isolation_procedure(payload: Input):
+    text = payload.text
+    query = (payload.query or "").strip()
 
-        # Parse and clean resolution steps
-        steps_block = match.group("steps").strip()
-        steps = [
-            step.strip(" -.") 
-            for step in re.split(r'\n|\r|\d+\.', steps_block) 
-            if step.strip()
-        ]
+    if not query:
+        return Output(procedure=None, steps=None, message="Please provide a procedure or error code to search.")
 
-        matches.append(ErrorFixDetail(
-            error_code=code,
-            description=desc,
-            resolution_steps=steps
-        ))
-
-    return {
-        "original_text": text,
-        "matches": matches
-    }
+    result = find_procedure_steps(text, query)
+    if result:
+        return Output(procedure=query, steps=result, message="Procedure found.")
+    else:
+        return Output(procedure=query, steps=None, message="Procedure not found.")
