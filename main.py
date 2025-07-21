@@ -1,46 +1,53 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
-import re
+from typing import List, Optional
 
 app = FastAPI()
 
-class PDFInput(BaseModel):
-    text: str  # PDF extracted text as input
+class UserQuery(BaseModel):
+    question: str
 
-class IsolationProcedure(BaseModel):
-    code: str
-    title: str
-    description: str
+class Reference(BaseModel):
+    section: str
+    page_number: Optional[int]
+    content_excerpt: str
 
-class Output(BaseModel):
-    original_text: str
-    procedures: List[IsolationProcedure]
+class Answer(BaseModel):
+    question: str
+    answer: str
+    references: List[Reference]
 
-@app.post("/search-isolation-procedures", response_model=Output)
-async def search_isolation_procedures(pdf_input: PDFInput):
-    text = pdf_input.text.strip()
-    procedures = []
-
-    # Regex explanation:
-    # - (FSPSP\d{2}) : matches codes like FSPSP01
-    # - \s+(.+?)      : matches the title after the code (stops at period OR first new line)
-    # - (.*?)(?=FSPSP\d{2}|\Z): matches description until next code or end of text
-    pattern = re.compile(
-        r'(FSPSP\d{2})\s+([^\n]+)\n?(.*?)(?=(FSPSP\d{2})|\Z)',
-        re.DOTALL | re.MULTILINE
+@app.post("/ask-isolation-procedure", response_model=Answer)
+async def ask_isolation_procedure(query: UserQuery):
+    """
+    Answer user questions related to IBM Isolation Procedures by referencing the uploaded PDF.
+    """
+    # -- In production: Use OCR/NLP/QA over PDF here, below is stubbed response for illustration --
+    sample_answer = (
+        "To isolate a communications failure, follow the Communication Isolation Procedure. "
+        "This includes verifying local hardware, checking external cables, and running device verification tests."
     )
+    sample_refs = [
+        Reference(
+            section="Communication isolation procedure",
+            page_number=1,
+            content_excerpt="Isolate a communications failure. Read and observe the following warnings..."
+        )
+    ]
+    return {
+        "question": query.question,
+        "answer": sample_answer,
+        "references": sample_refs,
+    }
 
-    for match in pattern.finditer(text):
-        code = match.group(1).strip()
-        title = match.group(2).strip()
-        description = match.group(3).strip()
-        # Optionally, collapse excessive whitespace in description
-        description = re.sub(r'\n\s*', '\n', description).strip()
-        procedures.append(IsolationProcedure(
-            code=code,
-            title=title,
-            description=description
-        ))
-
-    return {"original_text": text, "procedures": procedures}
+@app.post("/find-section", response_model=Reference)
+async def find_section(query: UserQuery):
+    """
+    Find and return the section of the PDF most relevant to the user query.
+    """
+    # -- In production: Search PDF index/toc --
+    return Reference(
+        section="Disk unit isolation procedure",
+        page_number=6,
+        content_excerpt="Provides a procedure to isolate a failure in a disk unit..."
+    )
