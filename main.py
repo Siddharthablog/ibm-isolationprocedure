@@ -1,44 +1,56 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 import re
 
 app = FastAPI()
 
-# Input model: same style as adapter-ai
+# Input model for uploaded PDF text
 class TextInput(BaseModel):
-    text: str  # Raw PDF text input
+    text: str  # Raw text extracted from the isolation procedure PDF
 
-# Output model: error code and its resolution steps
+# Output model for one error code resolution block
 class ErrorFixDetail(BaseModel):
     error_code: str
     description: str
     resolution_steps: List[str]
 
+# Output model for API response
 class Output(BaseModel):
     original_text: str
     matches: List[ErrorFixDetail]
 
-@app.post("/search-error-fix", response_model=Output)
-async def search_error_fix(input_text: TextInput):
+# Updated endpoint name
+@app.post("/search-isolation-procedure", response_model=Output)
+async def search_isolation_procedure(input_text: TextInput):
     text = input_text.text.strip()
+
+    # Debug logging to verify incoming data
+    print("Received text input length:", len(text))
+    print("First 300 characters of input text:")
+    print(text[:300])
+
     matches = []
 
-    # Regex to find error blocks
+    # Flexible regex pattern to capture varied formatting
     pattern = re.compile(
-        r"Error Code[:\s]+(?P<code>MEXI\w+)[\r\n]+"
-        r"Description[:\s]+(?P<desc>.+?)[\r\n]+"
-        r"Resolution Steps:(?P<steps>.*?)(?=\n---|\Z)",
-        re.DOTALL
+        r"Error Code[:\s]+(?P<code>\w+).*?"
+        r"Description[:\s]+(?P<desc>.+?)"
+        r"Resolution Steps[:\s]*(?P<steps>.*?)(?=Error Code|\Z)",
+        re.DOTALL | re.IGNORECASE
     )
 
     for match in pattern.finditer(text):
         code = match.group("code").strip()
         desc = match.group("desc").strip()
 
+        # Parse and clean resolution steps
         steps_block = match.group("steps").strip()
-        # Split steps by line numbers or dashes
-        steps = [step.strip(" -.") for step in re.split(r'\n\d+\.\s+|\n-\s+|\n', steps_block) if step.strip()]
+        steps = [
+            step.strip(" -.") 
+            for step in re.split(r'\n|\r|\d+\.', steps_block) 
+            if step.strip()
+        ]
 
         matches.append(ErrorFixDetail(
             error_code=code,
@@ -46,4 +58,7 @@ async def search_error_fix(input_text: TextInput):
             resolution_steps=steps
         ))
 
-    return {"original_text": text, "matches": matches}
+    return {
+        "original_text": text,
+        "matches": matches
+    }
