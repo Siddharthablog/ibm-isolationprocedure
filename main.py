@@ -14,6 +14,7 @@ class Output(BaseModel):
     steps: Optional[str] = None
     message: str
 
+# Matches something like FSPSP10 followed by lines of steps
 def find_procedure_steps(text: str, procedure_code: str) -> Optional[str]:
     # Normalize input
     procedure_code = procedure_code.strip().upper()
@@ -21,22 +22,14 @@ def find_procedure_steps(text: str, procedure_code: str) -> Optional[str]:
     # Escape for regex safety
     escaped_code = re.escape(procedure_code)
 
-    # A more flexible pattern:
-    # 1. Matches the escaped_code.
-    # 2. Captures any characters (including newlines due to re.DOTALL).
-    # 3. Stops when it encounters:
-    #    - A newline followed by a potential procedure code pattern (e.g., FSPxxxx)
-    #    - Or the very end of the string.
-    #    The lookahead for the next procedure code is made more general (FSP followed by digits)
-    #    or any common pattern for the start of a new section.
+    # Match starting at FSPSP10 and go until next all-caps token (like FSPABC1)
     pattern = re.compile(
-        rf"({escaped_code}.*?)(?=\n[A-Z]{{3}}[A-Z0-9]{{3,}}|\Z)", 
-        re.DOTALL | re.MULTILINE
+        rf"({escaped_code})(.*?)\n(?=[A-Z0-9]{{6,}}(?:\s|$)|\Z)",
+        re.DOTALL
     )
     match = pattern.search(text)
     if match:
-        # Return the captured group (the procedure code and its steps)
-        return match.group(1).strip()
+        return match.group(0).strip()
     return None
 
 @app.post("/search-isolation-procedure", response_model=Output)
@@ -52,3 +45,4 @@ def search_isolation_procedure(payload: Input):
         return Output(procedure=query, steps=result, message="Procedure found.")
     else:
         return Output(procedure=query, steps=None, message="Procedure not found.")
+
